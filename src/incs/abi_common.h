@@ -340,7 +340,7 @@
 /* 
  * IBM6 has a very problematic IO. Flushing the IO buffer helps avoid segmentation fault 
  * To disable these tricks, comment the three lines below.
- * */
+ * 
 #ifdef FC_IBM
 #define HAVE_IBM6
 #endif
@@ -351,7 +351,7 @@
 #else
 #define _IBM6(message)
 #endif
-
+*/
 
 /*
 */
