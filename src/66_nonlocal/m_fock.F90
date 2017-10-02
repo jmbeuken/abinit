@@ -4,12 +4,12 @@
 !!  m_fock
 !!
 !! FUNCTION
-!!  This module provides the definition of 
+!!  This module provides the definition of
 !!  the fock_type used to store data for the calculation of Fock exact exchange term
 !!  and the procedures to perform this calculation.
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2012-2016 ABINIT group (CMartins,FJ,FA,MT)
+!!  Copyright (C) 2012-2017 ABINIT group (CMartins,FJ,FA,MT)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -36,15 +36,16 @@ module m_fock
  use m_profiling_abi
  use m_errors
  use m_xmpi
- use m_mpinfo,     only : ptabs_fourdp
- use m_fstrings,        only : itoa, ftoa, sjoin
  use libxc_functionals
-
  use m_pawang
  use m_pawtab
  use m_pawfgr
  use m_pawfgrtab
  use m_pawcprj
+
+ use m_mpinfo,          only : ptabs_fourdp
+ use m_fstrings,        only : itoa, ftoa, sjoin
+ use m_cgtools,         only : set_istwfk
 
  implicit none
 
@@ -56,7 +57,7 @@ module m_fock
 !!  fock_type
 !!
 !! FUNCTION
-!!   This object stores the occupied wavefunctions and other quantities 
+!!   This object stores the occupied wavefunctions and other quantities
 !!   needed to calculate Fock exact exchange
 !!
 !! NOTES
@@ -94,17 +95,17 @@ module m_fock
    ! my_nsppol=1 when nsppol=1 or nsppol=2 and only one spin is treated by the processor.
    ! my_nsppol=2 when nsppol=2 and no parallelization over kpt (both spins are treated by the processor).
 
-  integer :: natom 
+  integer :: natom
    ! Number of atoms, input variable
 
-  integer :: nsppol 
+  integer :: nsppol
    ! Number of indipendent spin polarizations, input variable
    ! Note that this value does not take into account the MPI distribution of the wavefunctions.
 
-  integer :: ntypat 
+  integer :: ntypat
    ! Number of type of atoms
 
-  integer :: cg_typ 
+  integer :: cg_typ
     ! Option to control the application of Vx in cgwf.F90
 
   integer :: nnsclo_hf
@@ -141,22 +142,24 @@ module m_fock
 ! Integer arrays
   !integer :: ngfft(18)
   !  FFT mesh used for the computation of the Fock operator
-  !  Note that fock%ngfft may differ from the ngfft used for the application 
+  !  Note that fock%ngfft may differ from the ngfft used for the application
   !  of the local part of the KS Hamiltonian
+  integer, allocatable :: atindx(:)
+    !  atindx(natom)=index table for atoms (see gstate.f)
 
   integer, allocatable :: kg_bz(:,:)
     ! kg_bz(3,mpw*mkpt)
     ! G-vectors for each k-point in the BZ treate by this node
 
- integer, allocatable :: indsym(:,:) 
-    ! indsym,(nsym,natom))
+  integer, allocatable :: indsym(:,:,:)
+    ! indsym,(4,nsym,natom))
     ! indirect indexing array for atoms, see symatm.F90.
 
-  integer, allocatable :: nbandocc_bz(:,:) 
+  integer, allocatable :: nbandocc_bz(:,:)
     ! nbandocc_bz,(mkpt,my_nsppol))
     ! nb of bands at each k point
 
-  integer, allocatable :: istwfk_bz(:) 
+  integer, allocatable :: istwfk_bz(:)
     ! istwfk_bz,(mkpt))
     ! storage mode of the wavefunction at each k-point
 
@@ -173,16 +176,16 @@ module m_fock
 
   integer, allocatable :: symafm(:)
     ! symafm,(nsym))
-    ! (anti)ferromagnetic part of symmetry operations 
-
+    ! (anti)ferromagnetic part of symmetry operations
+  integer, allocatable :: symrec(:,:,:)
 
   integer, allocatable :: tab_symkpt(:)
     ! tab_symkpt,(mkpt))
-    ! indices of symmetry operation to apply to get jkpt in full BZ from ikpt in IBZ 
+    ! indices of symmetry operation to apply to get jkpt in full BZ from ikpt in IBZ
 
   integer, allocatable :: timerev(:)
     ! timerev,(mkpt))
-    ! 1 if time reversal symmetry must be used (0 otherwise) at each k point 
+    ! 1 if time reversal symmetry must be used (0 otherwise) at each k point
 
   integer, allocatable :: tab_ibg(:,:)
     ! tab_ibg,(mkpt,my_nsppol))
@@ -238,7 +241,7 @@ module m_fock
 
   real(dp), allocatable :: cgocc(:,:,:)
     ! cgocc(2,npw*mkptband,my_nsppol)
-    ! wavefunction in the G-space 
+    ! wavefunction in the G-space
 
   real(dp), allocatable :: cwaveocc_bz(:,:,:,:,:,:)
     ! (2,n4,n5,n6,mkptband,my_nsppol))
@@ -248,9 +251,13 @@ module m_fock
     ! edc(mkpt*nband)
     ! double counting energy for each band and kpoint
 
+ real(dp), allocatable  :: ffnl_str(:,:,:,:)
+    ! ffnl_str(npw,dimffnl,lmnmax,ntypat)
+    ! nonlocal form factors for stresses calculation
+
   real(dp), allocatable :: occ_bz(:,:)
     ! occ_bz(mkptband,my_nsppol))
-    ! occupancy of each bands at each k point 
+    ! occupancy of each bands at each k point
 
   real(dp), allocatable :: wtk_bz(:)
     ! wtk_bz,(mkpt))
@@ -283,15 +290,16 @@ module m_fock
 !  real(dp), allocatable :: cwavef_r(:,:,:,:),vlocpsi_r(:,:,:,:)
 !  real(dp), allocatable :: rhog_munu(:,:)
 !  real(dp), allocatable :: dummytab3(:,:,:),dummytab2(:,:)
-!  real(dp), allocatable :: work_tmp3(:) 
+!  real(dp), allocatable :: work_tmp3(:)
 
 ! Pointers to PAW-types (associated only if usepaw==1)
 ! Note that these are references to already existing objects.
-  type(pawang_type),pointer :: pawang 
+  type(pawang_type),pointer :: pawang
   type(pawtab_type), pointer :: pawtab(:)
-  type(pawfgr_type),pointer :: pawfgr 
+  type(pawfgr_type),pointer :: pawfgr
   type(pawfgrtab_type),allocatable :: pawfgrtab(:)
   type(pawcprj_type), allocatable :: cwaveocc_prj(:,:)
+  type(pawrhoij_type),pointer :: pawrhoij(:)
     ! (natom,mcprj))
 
  end type fock_type
@@ -312,7 +320,7 @@ module m_fock
  public :: bare_vqg
  public :: strfock
 
-contains 
+contains
 !!***
 
 !!****f* m_fock/fock_create
@@ -366,9 +374,9 @@ subroutine fock_create(fock,mgfft,mpw,mkpt,mkptband,my_nsppol,natom,n4,n5,n6,nba
 !scalars
 !arrays
 ! character(len=500) :: message                   ! to be uncommented, if needed
- 
+
 ! *************************************************************************
- 
+
  !write (std_out,*) ' fock_create : enter'
 
 !* Create the array %kptns_bz = the k points in full BZ
@@ -414,7 +422,7 @@ subroutine fock_create(fock,mgfft,mpw,mkpt,mkptband,my_nsppol,natom,n4,n5,n6,nba
  ABI_ALLOCATE(fock%phase,(2,mpw*mkpt))
  fock%phase=zero
 
-!* Create the array %timerev i= 1 if time reversal symmetry must be used (0 otherwise) at each k point 
+!* Create the array %timerev i= 1 if time reversal symmetry must be used (0 otherwise) at each k point
  ABI_ALLOCATE(fock%timerev,(mkpt))
  fock%timerev=0
 
@@ -515,7 +523,7 @@ end subroutine fock_create
 !!
 !! SOURCE
 
-subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,pawang,pawfgr,pawtab,rprimd)
+subroutine fock_init(atindx,cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,pawang,pawfgr,pawtab,rprimd)
 
 
 !This section has been created automatically by the script Abilint (TD).
@@ -541,7 +549,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
  type(pawfgr_type),intent(in),target :: pawfgr
  type(pawang_type),intent(in),target :: pawang
 !arrays
- integer, intent(in) ::indsym(4,dtset%nsym,dtset%natom),nattyp(dtset%ntypat), npwarr(dtset%nkpt)
+ integer, intent(in) :: atindx(dtset%natom),indsym(4,dtset%nsym,dtset%natom),nattyp(dtset%ntypat), npwarr(dtset%nkpt)
  integer,intent(in) :: kg(3,dtset%mpw*dtset%mkmem)
  real(dp), intent(in) :: rprimd(3,3)
  type(pawtab_type), intent(in),target :: pawtab(dtset%ntypat*dtset%usepaw)
@@ -557,21 +565,21 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
  real(dp) :: gmet(3,3),gprimd(3,3),tau_nons(3),phktnons(2,1),tsec(2),Rtnons(3,dtset%nsym)
  integer,allocatable :: dimcprj(:),indkk(:,:),kg_tmp(:),my_ikgtab(:),my_ibgtab(:,:),my_icgtab(:,:),my_icptab(:,:),invsym(:)
  real(dp),allocatable :: kptns_hf(:,:), phase1d(:,:)
- 
+
 ! *************************************************************************
- 
+
  DBG_ENTER("COLL")
- 
+
  call timab(1500,1,tsec)
 
  if (dtset%nspinor/=1) then
    msg='Hartree-Fock option can be used only with option nspinor=1.'
    MSG_ERROR(msg)
- end if 
+ end if
 
 ! =====================================
 ! === Define useful local variables ===
-! =====================================           
+! =====================================
 
  nkpt_bz=dtset%nkpthf
  nproc_hf=mpi_enreg%nproc_hf
@@ -588,7 +596,8 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
  ABI_ALLOCATE(phase1d,(2,(2*n1+1)*(2*n2+1)*(2*n3+1)))
  phase1d=zero
  ABI_ALLOCATE(kg_tmp,(3*dtset%mpw))
- 
+
+
 !* Initialize the array tab_indikpt = indices of kg(ikpt)/cprj(ikpt)-occ(ikpt) and cg(ikpt) associated to ikpt
 ! ABI_ALLOCATE(tab_indikpt,(1+2*dtset%nsppol,dtset%nkpt))
 ! tab_indikpt=0
@@ -626,7 +635,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 !* Default value is -1.
    end if
  end do
- 
+
 !* Initialize the array my_ibgtab = shifts in arrays occ(ibg) associated to ikpt
 !* Initialize the array my_icgtab = shifts in arrays cg(icg) associated to ikpt
  ABI_ALLOCATE(my_ibgtab,(dtset%nkpt,dtset%nsppol))
@@ -653,7 +662,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
      ibg=ibg+nband
    end do
  end do
- 
+
  if (.not.(associated(fock))) then
 
 ! =================================
@@ -670,29 +679,29 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 !* Compute mkpt the size of arrays/pointers for k points w.r.t. parallelism
 !* Compute mkptband the size of arrays/pointers for occupied states w.r.t. parallelism
    if (nproc_hf<nkpt_bz) then
-!* Parallelization over kpts only 
+!* Parallelization over kpts only
      mkpt=nkpt_bz/nproc_hf
      if (mod(nkpt_bz,nproc_hf) /=0) mkpt=mkpt+1
      mkptband=mkpt*mband
    else
 !* Parallelization over occupied states
-     if (nproc_hf<nkpt_bz*mband) then 
-       mkptband=(nkpt_bz*mband)/nproc_hf 
+     if (nproc_hf<nkpt_bz*mband) then
+       mkptband=(nkpt_bz*mband)/nproc_hf
        if (mod((nkpt_bz*mband),nproc_hf) /=0) mkptband=mkptband+1
        mkpt=1
        if (mod(nproc_hf,nkpt_bz) /=0) mkpt=2
      else
-       mkptband=1 
+       mkptband=1
        mkpt=1
      end if
-   end if 
+   end if
    mgfft=dtset%mgfft
    fock%usepaw=dtset%usepaw
    if (fock%usepaw==1)then
      mgfft=dtset%mgfftdg
      n4=dtset%ngfftdg(4) ; n5=dtset%ngfftdg(5) ; n6=dtset%ngfftdg(6)
    end if
-  fock%optfor=.FALSE.; fock%optstr=.false.
+   fock%optfor=.FALSE.; fock%optstr=.false.
    if(dtset%optforces==1) fock%optfor=.true.
 
    call fock_create(fock,mgfft,dtset%mpw,mkpt,mkptband,my_nsppol,dtset%natom,n4,n5,n6,nband,dtset%userid)
@@ -724,21 +733,20 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
      ABI_ALLOCATE(dimcprj,(dtset%natom))
      call pawcprj_getdim(dimcprj,dtset%natom,nattyp,dtset%ntypat,dtset%typat,pawtab,'O')
      ncpgr = 0
-     if (dtset%optforces/= 0 .and. dtset%optstress == 0) then
-       ncpgr = 3 
- !    else if (dtset%optstress /= 0) then
- !      ncpgr = 9 
-     end if
+     if (dtset%optforces/= 0) ncpgr = 3
+     if (dtset%optstress /= 0) ncpgr = 6
      call pawcprj_alloc(fock%cwaveocc_prj,ncpgr,dimcprj)
      ABI_DEALLOCATE(dimcprj)
      ABI_ALLOCATE(fock%edc,(fock%mkpt*nband))
      fock%edc=zero
-     ABI_ALLOCATE(fock%indsym,(dtset%nsym,dtset%natom))
-     fock%indsym(:,:)=indsym(4,:,:)
+     ABI_ALLOCATE(fock%indsym,(4,dtset%nsym,dtset%natom))
+     fock%indsym=indsym
+     ABI_ALLOCATE(fock%atindx,(dtset%natom))
+     fock%atindx=atindx
      ABI_ALLOCATE(fock%typat,(dtset%natom))
      fock%typat=dtset%typat
      ABI_ALLOCATE(fock%symafm,(dtset%nsym))
-     fock%symafm=dtset%symafm
+     fock%symafm(1:dtset%nsym)=dtset%symafm(1:dtset%nsym)
    end if
 ! ==========================================
 ! === Initialize the convergence options ===
@@ -751,35 +759,35 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
      msg=' - The parameter cgtyp must have an integer value between 0 and 2.'
      call wrtout(std_out,msg,'COLL')
    end if
-   if (dtset%cgtyphf==0) then 
+   if (dtset%cgtyphf==0) then
      fock%cg_typ=2
      msg=' - The parameter cgtyphf is set to its default value 2.'
      call wrtout(std_out,msg,'COLL')
 !* Default value is set to 2 (calculation of exact exchange each time the function getghc is called in cgwf)
 !* May be useful to put default to 1 (calculation of exact exchange only for the first call to getghc in cgwf)
-   else 
+   else
      fock%cg_typ=dtset%cgtyphf
      write(msg,'(a,i3)') ' - The parameter cgtyphf is set to the value:', dtset%cgtyphf
      call wrtout(std_out,msg,'COLL')
 !* value chosen by the user : 1 or 2.
    end if
-  
+
 !* Number of iterations with fixed occupied states when calculating the exact exchange contribution.
    if (dtset%nnsclohf<0) then
      msg='The parameter nnsclohf must be a non-negative integer.'
      MSG_ERROR(msg)
    end if
-   if (dtset%nnsclohf==0) then 
+   if (dtset%nnsclohf==0) then
      fock%nnsclo_hf=1
      msg=' - The parameter nnsclohf is set to its default value 1.'
      call wrtout(std_out,msg,'COLL')
 !* Default value is set to 1 (updating cgocc at each step)
-!* May be useful to put default to 3 
-   else 
+!* May be useful to put default to 3
+   else
      fock%nnsclo_hf=dtset%nnsclohf
      write(msg,'(a,i3)') ' - The parameter nnsclohf is set to the value:', dtset%nnsclohf
      call wrtout(std_out,msg,'COLL')
-!* value chosen by the user 
+!* value chosen by the user
    end if
 
 ! =========================================
@@ -813,14 +821,14 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
      call wrtout(std_out,msg,'COLL')
    end if
    if (dtset%ixc<0) then
-     call libxc_functionals_get_hybridcoef(hyb_mixing=fock%hybrid_mixing,hyb_mixing_sr=fock%hybrid_mixing_sr,&
-&                                          hyb_range=fock%hybrid_range)
+     call libxc_functionals_get_hybridparams(hyb_mixing=fock%hybrid_mixing,hyb_mixing_sr=fock%hybrid_mixing_sr,&
+&                                            hyb_range=fock%hybrid_range)
      if (abs(fock%hybrid_mixing)>tol8.or.abs(fock%hybrid_mixing_sr)>tol8) then
        msg=' - This is a hybrid XC functional from LibXC. The mixing and range coeffs are set accordingly.'
        call wrtout(std_out,msg,'COLL')
      end if
    end if
- 
+
 ! ======================================================
 ! === Initialize the data relative to Poisson solver ===
 ! ======================================================
@@ -843,13 +851,13 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 ! === Initialize the set of k-points in BZ ===
 ! ============================================
 !* Generate all the k-points in BZ (Monkhorst-Pack grid)
-!* brav=1 to treat all Bravais lattices ; iout=0 since we do not want any output ; option=0 since we consider k-points 
+!* brav=1 to treat all Bravais lattices ; iout=0 since we do not want any output ; option=0 since we consider k-points
        call smpbz(1,0,dtset%kptrlatt,nkpt_bz,nkpt,dtset%nshiftk,0,dtset%shiftk,kptns_hf)
 !* kptns_hf contains the special k points obtained by the Monkhorst & Pack method, in reduced coordinates. (output)
        if (nkpt_bz/=nkpt) then
           msg='The value of nkpt_bz and the result of smpbz should be equal!'
           MSG_ERROR(msg)
-       end if 
+       end if
 
 ! =======================================================
 ! === Compute the transformation to go from IBZ to BZ ===
@@ -866,11 +874,11 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
        if (dtset%kptopt==2) then
 !* Only time reversal symmetry is used.
          symm=0 ; symm(1,1)=1 ; symm(2,2)=1 ; symm(3,3)=1
-         call listkk(dksqmax,gmet,indkk(1:nkpt_bz,:),dtset%kptns,kptns_hf,dtset%nkpt, & 
+         call listkk(dksqmax,gmet,indkk(1:nkpt_bz,:),dtset%kptns,kptns_hf,dtset%nkpt, &
 &            nkpt_bz,1,1,indx,symm,timrev)
        else
 !* As in getkgrid, no use of antiferromagnetic symmetries thans to the option sppoldbl=1
-         call listkk(dksqmax,gmet,indkk(1:nkpt_bz,:),dtset%kptns,kptns_hf,dtset%nkpt, & 
+         call listkk(dksqmax,gmet,indkk(1:nkpt_bz,:),dtset%kptns,kptns_hf,dtset%nkpt, &
 &            nkpt_bz,dtset%nsym,1,dtset%symafm,dtset%symrel,timrev)
        end if
 !* indkk(nkpt_bz,6) describes the k point of IBZ that generates each k point of BZ
@@ -888,7 +896,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
        if (nkpt_bz/=dtset%nkpt) then
          msg='In this version, the value of nkpt_bz and nkpt should be equal!'
          MSG_ERROR(msg)
-       end if 
+       end if
 
        kptns_hf=dtset%kptns
 
@@ -906,20 +914,20 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 !* In the most general case, use of listkk is certainly possible.
      end if
 
-   else 
+   else
      if (dtset%kptopt==0) then
-!* kptopt =0 : read directly nkpt, kpt, kptnrm and wtk in the input file 
+!* kptopt =0 : read directly nkpt, kpt, kptnrm and wtk in the input file
 !*              => this case is not allowed for the moment
        msg='Hartree-Fock option can not be used with option kptopt=0.'
        MSG_ERROR(msg)
-     else 
-!* kptopt <0 : rely on kptbounds, and ndivk to set up a band structure calculation 
+     else
+!* kptopt <0 : rely on kptbounds, and ndivk to set up a band structure calculation
 !*              => a band structure calculation is not yet allowed.
        msg='Hartree-Fock option can not be used with option kptopt<0.'
        MSG_ERROR(msg)
      end if
    end if
-       
+
 !! =======================================================
 !! === Initialize the properties of the k-points in BZ ===
 !! =======================================================
@@ -935,25 +943,25 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 !         shiftg(:)=indkk(jkpt,3:5)
 !!* shiftg = Bravais vector G0 to add to remain in BZ
 !         if (jsym/=0) then
-!           symm(:,:)=dtset%symrel(:,:,jsym) 
+!           symm(:,:)=dtset%symrel(:,:,jsym)
 !           tau_nons(:)=dtset%tnons(:,jsym)
-!!* The symmetry operation in k-space (symm) and the non-symorphic translation (tau_nons) are now defined. 
+!!* The symmetry operation in k-space (symm) and the non-symorphic translation (tau_nons) are now defined.
 !           if(sum(tau_nons(:)**2)>tol8) then
 !!* Initialize %calc_phase(jkpt) to 1
 !             fock%calc_phase(jkpt)=1
-!!* Compute the phase factor exp(i*2*pi*G.tau) for all G. 
+!!* Compute the phase factor exp(i*2*pi*G.tau) for all G.
 !             indx(1)=1
 !             phase1d=zero
 !             call getph(indx,1,n1,n2,n3,phase1d,tau_nons)
 !!* Although the routine getph is orignally written for atomic phase factors, it does precisely what we want
-!             arg=two_pi*(dtset%kptns(1,ikpt)*tau_nons(1) + dtset%kptns(2,ikpt)*tau_nons(2) & 
+!             arg=two_pi*(dtset%kptns(1,ikpt)*tau_nons(1) + dtset%kptns(2,ikpt)*tau_nons(2) &
 !&                + dtset%kptns(3,ikpt)*tau_nons(3))
 !             phktnons(1,1)=cos(arg)
 !             phktnons(2,1)=sin(arg)
 !!              phktnons(1,1)=one
 !!              phktnons(2,1)=zero
 !!* Convert 1D phase factors to 3D phase factors exp(i*2*pi*(k+G).tau) and store it in %phase_j
-!             call ph1d3d(1,1,kg(:,1+tab_indikpt(1,ikpt):npwj+tab_indikpt(1,ikpt)),1,1,npwj,n1, & 
+!             call ph1d3d(1,1,kg(:,1+tab_indikpt(1,ikpt):npwj+tab_indikpt(1,ikpt)),1,1,npwj,n1, &
 !&              n2,n3,phktnons,phase1d,fock%phase(:,1+jkg:npwj+jkg))
 !           end if
 !         else
@@ -968,13 +976,13 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 !           symm(:,:)=-symm(:,:)
 !         end if
 
-!!* Initialize %istwfk_bz(jkpt) to 
+!!* Initialize %istwfk_bz(jkpt) to
 !         fock%istwfk_bz(jkpt)=dtset%istwfk(ikpt)
 
 !!* Initialize %tab_ikpt and %tab_ibgcg
 !         fock%tab_ikpt(jkpt)=ikpt
 !         fock%tab_ibgcg(1:dtset%nsppol,jkpt)=tab_indikpt(2:1+dtset%nsppol,ikpt)
-!         fock%tab_ibgcg(1+dtset%nsppol:2*dtset%nsppol,jkpt)= & 
+!         fock%tab_ibgcg(1+dtset%nsppol:2*dtset%nsppol,jkpt)= &
 !&          tab_indikpt(2+dtset%nsppol:2*dtset%nsppol+1,ikpt)
 
 !!* Initialize %npwarr_bz
@@ -982,7 +990,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 
 !!* Initialize %kg_bz
 !         do jpw=1,npwj
-!           v1=kg(1,jpw+tab_indikpt(1,ikpt)) ; v2=kg(2,jpw+tab_indikpt(1,ikpt)) ; v3=kg(3,jpw+tab_indikpt(1,ikpt)) 
+!           v1=kg(1,jpw+tab_indikpt(1,ikpt)) ; v2=kg(2,jpw+tab_indikpt(1,ikpt)) ; v3=kg(3,jpw+tab_indikpt(1,ikpt))
 !           fock%kg_bz(1,jpw+jkg)=-shiftg(1)+symm(1,1)*v1+symm(2,1)*v2+symm(3,1)*v3
 !           fock%kg_bz(2,jpw+jkg)=-shiftg(2)+symm(1,2)*v1+symm(2,2)*v2+symm(3,2)*v3
 !           fock%kg_bz(3,jpw+jkg)=-shiftg(3)+symm(1,3)*v1+symm(2,3)*v2+symm(3,3)*v3
@@ -990,11 +998,11 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 !         end do
 
 !!* Initialize %gbound_bz
-!         call sphereboundary(fock%gbound_bz(:,:,jkpt),fock%istwfk_bz(jkpt), & 
+!         call sphereboundary(fock%gbound_bz(:,:,jkpt),fock%istwfk_bz(jkpt), &
 !&          fock%kg_bz(:,1+jkg:npwj+jkg),dtset%mgfft,npwj)
 
 !!* Update of the shift to be applied
-!         jkg=jkg+npwj 
+!         jkg=jkg+npwj
 !       end do
 
 ! ==========================================================
@@ -1006,6 +1014,9 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
          call mati3inv(dtset%symrel(:,:,isym),symrec(:,:,isym))
          Rtnons (:,isym)= MATMUL(TRANSPOSE(symrec(:,:,isym)),dtset%tnons(:,isym))
    end do
+   ABI_ALLOCATE(fock%symrec,(3,3,dtset%nsym))
+   fock%symrec=symrec
+
    ABI_ALLOCATE(invsym,(dtset%nsym))
    invsym=0
    ident(1,:3)=(/1,0,0/)
@@ -1013,7 +1024,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
    ident(3,:3)=(/0,0,1/)
    do isym=1,dtset%nsym
      symm(:,:)=MATMUL(dtset%symrel(:,:,isym),dtset%symrel(:,:,isym))
-     if (all(symm(:,:)==ident(:,:))) then 
+     if (all(symm(:,:)==ident(:,:))) then
        invsym(isym)=isym
      else
        do jsym=1,dtset%nsym
@@ -1031,17 +1042,18 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
    end do
 
    jkg_this_proc=0;my_jkpt=0
+!indkk(1:nkpt_bz,2)=(/1,1,3,1,11,7,9,1/)
    do jkpt=1,nkpt_bz
 
 !* If this processor does not calculate exchange with the k point jkpt, skip the rest of the k-point loop.
-     if (proc_distrb_cycle(mpi_enreg%distrb_hf,jkpt,1,mband,1,mpi_enreg%me_hf)) cycle 
+     if (proc_distrb_cycle(mpi_enreg%distrb_hf,jkpt,1,mband,1,mpi_enreg%me_hf)) cycle
 !       if (.NOT.(proc_distrb_cycle(mpi_enreg%proc_distrb,jkpt,1,dtset%nbandhf,1,mpi_enreg%me_kpt))) then
 !* The processor does own a copy of the array kg of ikpt ; increment the shift.
 !         jkg=jkg+npwj
 !        end if
 ! Skip the rest of the k-point loop
 !       cycle
-!     end if  
+!     end if
      my_jkpt=my_jkpt+1
 
      ikpt=indkk(jkpt,1)
@@ -1076,10 +1088,10 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 
 !!* Initialize the array %tab_ibgcg = indices of cprj(ikpt)/occ(ikpt) and cg(ikpt) for each k point jkpt
 !     if (my_nsppol==2) then
-!!* In this case, my_nsppol=dtset%nsppol=2 
+!!* In this case, my_nsppol=dtset%nsppol=2
 !       fock%tab_ibgcg(1:2,my_jkpt)=tab_indikpt(2:3,ikpt)
 !       fock%tab_ibgcg(3:4,my_jkpt)=tab_indikpt(4:5,ikpt)
-!     else 
+!     else
 !       if(mpi_enreg%my_isppoltab(1)==1) then
 !!* In this case, my_nsppol=1 and the up spin is treated (dtset%nsppol= 1 or 2)
 !         fock%tab_ibgcg(1,my_jkpt)=tab_indikpt(2,ikpt)
@@ -1093,7 +1105,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 
 !* Initialize the array %kg_bz = reduced planewave coordinates at each k point
      if (.NOT.(proc_distrb_cycle(mpi_enreg%proc_distrb,ikpt,1,mband,-1,mpi_enreg%me_kpt))) then
-!* We perform the test with isppol=-1 (both spins) and the occupied band (dtset%nbandhf). 
+!* We perform the test with isppol=-1 (both spins) and the occupied band (dtset%nbandhf).
 !* We assume that paral_kgb==0 (a k-point may not be present on several proc.)
 !* The array kg for ikpt is stored on this processor and copied in kg_tmp.
        ikg=my_ikgtab(ikpt)
@@ -1105,7 +1117,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 !       jkg=jkg+npwj
      end if
 !* Broadcast the array kg_tmp to all the processors of comm_kpt.
-!* Since paral_kgb==0, all the bands of a k-point are treated on the same proc. 
+!* Since paral_kgb==0, all the bands of a k-point are treated on the same proc.
      call xmpi_bcast(kg_tmp,mpi_enreg%proc_distrb(ikpt,1,1),mpi_enreg%comm_kpt,ier)
      do ik=1,3
        fock%kg_bz(ik,1+jkg_this_proc:npwj+jkg_this_proc)=kg_tmp(1+(ik-1)*npwj:ik*npwj)
@@ -1113,26 +1125,26 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 
 !* Apply a symmetry operation on kg_bz if necessary
      if (jsym/=0) then
-       symm(:,:)=dtset%symrel(:,:,jsym) 
+       symm(:,:)=dtset%symrel(:,:,jsym)
 !      tau_nons(:)=dtset%tnons(:,jsym)
        tau_nons(:)=-Rtnons(:,invsym(jsym))
-!* The symmetry operation in k-space (symm) and the non-symorphic translation (tau_nons) are now defined. 
+!* The symmetry operation in k-space (symm) and the non-symorphic translation (tau_nons) are now defined.
        if(sum(tau_nons(:)**2)>tol8) then
 !* Initialize %calc_phase(jkpt) to 1
          fock%calc_phase(my_jkpt)=1
-!* Compute the phase factor exp(i*2*pi*G.tau) for all G. 
+!* Compute the phase factor exp(i*2*pi*G.tau) for all G.
          indx(1)=1
          phase1d=zero
          call getph(indx,1,n1,n2,n3,phase1d,tau_nons)
 !* Although the routine getph is orignally written for atomic phase factors, it does precisely what we want
-         arg=two_pi*(dtset%kptns(1,ikpt)*tau_nons(1) + dtset%kptns(2,ikpt)*tau_nons(2) & 
+         arg=two_pi*(dtset%kptns(1,ikpt)*tau_nons(1) + dtset%kptns(2,ikpt)*tau_nons(2) &
 &            + dtset%kptns(3,ikpt)*tau_nons(3))
          phktnons(1,1)=cos(arg)
          phktnons(2,1)=sin(arg)
 !          phktnons(1,1)=one
 !          phktnons(2,1)=zero
 !* Convert 1D phase factors to 3D phase factors exp(i*2*pi*(k+G).tau) and store it in %phase_j
-         call ph1d3d(1,1,fock%kg_bz(:,1+jkg_this_proc:npwj+jkg_this_proc),1,1,npwj,n1,n2,n3, & 
+         call ph1d3d(1,1,fock%kg_bz(:,1+jkg_this_proc:npwj+jkg_this_proc),1,1,npwj,n1,n2,n3, &
 &          phktnons,phase1d,fock%phase(:,1+jkg_this_proc:npwj+jkg_this_proc))
        end if
 !* Apply time-reversal symmetry if required
@@ -1143,14 +1155,14 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
        end if
 !* Initialize %kg_bz
        do jpw=1,npwj
-         v1=fock%kg_bz(1,jpw+jkg_this_proc) ; v2=fock%kg_bz(2,jpw+jkg_this_proc) ; v3=fock%kg_bz(3,jpw+jkg_this_proc) 
+         v1=fock%kg_bz(1,jpw+jkg_this_proc) ; v2=fock%kg_bz(2,jpw+jkg_this_proc) ; v3=fock%kg_bz(3,jpw+jkg_this_proc)
          fock%kg_bz(1,jpw+jkg_this_proc)=-shiftg(1)+symm(1,1)*v1+symm(2,1)*v2+symm(3,1)*v3
          fock%kg_bz(2,jpw+jkg_this_proc)=-shiftg(2)+symm(1,2)*v1+symm(2,2)*v2+symm(3,2)*v3
          fock%kg_bz(3,jpw+jkg_this_proc)=-shiftg(3)+symm(1,3)*v1+symm(2,3)*v2+symm(3,3)*v3
 !* The symmetry operation symm must be transposed when used. (cf. docs about wfconv)
        end do
      else
-!* Ths symmetry operation is the identity.         
+!* Ths symmetry operation is the identity.
 !* Apply time-reversal symmetry if required
        if(indkk(jkpt,6)/=0) then
 !* Initialize %timerev(jkpt) to 1
@@ -1160,11 +1172,11 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
      end if
 
 !* Initialize the array %gbound_bz = boundary of the basis sphere of G vectors at each k point
-     call sphereboundary(fock%gbound_bz(:,:,my_jkpt),fock%istwfk_bz(my_jkpt),& 
+     call sphereboundary(fock%gbound_bz(:,:,my_jkpt),fock%istwfk_bz(my_jkpt),&
 &      fock%kg_bz(:,1+jkg_this_proc:npwj+jkg_this_proc),mgfft,npwj)
 
      jkg_this_proc=jkg_this_proc+npwj
-     
+
 !* Initialize the arrays %tab_ibg = shifts in arrays cprj and occ (ibg) for each k point jkpt
 !* Initialize the arrays %tab_icg = shifts in arrays cg(icg) for each k point jkpt
      if (my_nsppol==1) then
@@ -1173,7 +1185,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
          fock%tab_icp(my_jkpt,1)=my_icptab(ikpt,1+mpi_enreg%my_isppoltab(2))
 !* if mpy_isppoltab(2)=0, the up spin is treated (dtset%nsppol= 1 or 2)
 !* if mpy_isppoltab(2)=1, the dn spin is treated (so dtset%nsppol=2)
-     
+
 !       if(mpi_enreg%my_isppoltab(2)==1) then
 !* In this case, my_nsppol=1 and the up spin is treated (dtset%nsppol= 1 or 2)
 !         fock%tab_ibg(my_jkpt,1)=my_ibgtab(ikpt,1)
@@ -1184,7 +1196,7 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 !         fock%tab_icg(my_jkpt,1)=my_icgtab(ikpt,2)
 !       end if
      else
-!* In this case, my_nsppol=dtset%nsppol=2 
+!* In this case, my_nsppol=dtset%nsppol=2
        fock%tab_ibg(my_jkpt,:)=my_ibgtab(ikpt,:)
        fock%tab_icg(my_jkpt,:)=my_icgtab(ikpt,:)
        fock%tab_icp(my_jkpt,:)=my_icptab(ikpt,:)
@@ -1194,20 +1206,21 @@ subroutine fock_init(cplex,dtset,fock,gsqcut,indsym,kg,mpi_enreg,nattyp,npwarr,p
 
 !* Deallocation
    ABI_DEALLOCATE(invsym)
-   ABI_DEALLOCATE(indkk)
-   ABI_DEALLOCATE(kg_tmp)
-   ABI_DEALLOCATE(kptns_hf)
-   ABI_DEALLOCATE(my_ibgtab)
-   ABI_DEALLOCATE(my_icgtab)
-   ABI_DEALLOCATE(my_icptab)
-   ABI_DEALLOCATE(my_ikgtab)
-   ABI_DEALLOCATE(phase1d)
+
  end if
+ ABI_DEALLOCATE(indkk)
+ ABI_DEALLOCATE(kg_tmp)
+ ABI_DEALLOCATE(kptns_hf)
+ ABI_DEALLOCATE(my_ibgtab)
+ ABI_DEALLOCATE(my_icgtab)
+ ABI_DEALLOCATE(my_icptab)
+ ABI_DEALLOCATE(my_ikgtab)
+ ABI_DEALLOCATE(phase1d)
 
  call fock_print(fock,unit=std_out)
 
  call timab(1500,2,tsec)
- 
+
 DBG_EXIT("COLL")
 
 end subroutine fock_init
@@ -1259,7 +1272,7 @@ subroutine fock_updateikpt(fock,ikpt,isppol)
  type(fock_type),pointer :: fock
 
 ! *************************************************************************
- 
+
  !write (std_out,*) ' fock_updateikpt : enter'
 
 ! ======================================================
@@ -1315,9 +1328,9 @@ subroutine fock_set_ieigen(fock,iband)
 !Arguments ------------------------------------
  integer, intent(in) :: iband
  type(fock_type),pointer :: fock
- 
+
 ! *************************************************************************
- 
+
 !Nothing to do if fock pointer is not associated...
 
 ! ======================================================
@@ -1368,8 +1381,8 @@ subroutine fock_destroy(fock)
 ! *************************************************************************
 
  DBG_ENTER("COLL")
- 
- ! real arrays 
+
+ ! real arrays
  if (allocated(fock%forces)) then
    ABI_DEALLOCATE(fock%forces)
  endif
@@ -1396,6 +1409,9 @@ subroutine fock_destroy(fock)
    ABI_DATATYPE_DEALLOCATE(fock%cwaveocc_prj)
  endif
  ! Deallocate integer arrays
+ if (allocated(fock%atindx)) then
+   ABI_DEALLOCATE(fock%atindx)
+ endif
  if (allocated(fock%kg_bz)) then
    ABI_DEALLOCATE(fock%kg_bz)
  endif
@@ -1436,7 +1452,7 @@ subroutine fock_destroy(fock)
     ABI_DEALLOCATE(fock%typat)
  endif
 !* [description of IBZ and BZ]
-!* Deallocate real arrays 
+!* Deallocate real arrays
  if (allocated(fock%wtk_bz)) then
    ABI_DEALLOCATE(fock%wtk_bz)
  endif
@@ -1452,7 +1468,7 @@ subroutine fock_destroy(fock)
 !* Put the integer to 0
    fock%nkpt_bz=0
 
-!* Deallocate real arrays 
+!* Deallocate real arrays
  if (allocated(fock%eigen_ikpt)) then
     ABI_DEALLOCATE(fock%eigen_ikpt)
  endif
@@ -1464,13 +1480,16 @@ subroutine fock_destroy(fock)
  if (allocated(fock%edc)) then
     ABI_DEALLOCATE(fock%edc)
  endif
+ if (allocated(fock%ffnl_str)) then
+    ABI_DEALLOCATE(fock%ffnl_str)
+ endif
  ! Put the integer to 0
  fock%ieigen=0
  fock%ikpt=0
  fock%isppol=0
 
 !* [intermediate variables for the calculation]
-!* Deallocate real arrays 
+!* Deallocate real arrays
 !   if (allocated(fock%cwavef_r)) then
 !      ABI_DEALLOCATE(fock%cwavef_r)
 !   endif
@@ -1493,7 +1512,9 @@ subroutine fock_destroy(fock)
  if (allocated(fock%gbound_bz)) then
     ABI_DEALLOCATE(fock%gbound_bz)
  endif
-
+ if (allocated(fock%symrec)) then
+    ABI_DEALLOCATE(fock%symrec)
+ endif
 !* [description of divergence in |q+G|=0]
 !* Put the real (dp) to 0
  fock%gsqcut=zero
@@ -1530,10 +1551,10 @@ end subroutine fock_destroy
 !! SIDE EFFECTS
 !!  energies <type(energies_type)>=storage for energies computed here :
 !!   | e_exactX = Fock contribution to the total energy (Hartree)
-!! 
+!!
 !! NOTES
 !! If the cgocc_bz are not updated at each iteration, be careful to calculate Fock energy at the same frequency.
-!! TO CHECK == CHANGE IN SOME DEFINTIONS 
+!! TO CHECK == CHANGE IN SOME DEFINTIONS
 !!
 !! PARENTS
 !!      vtorho
@@ -1565,21 +1586,24 @@ subroutine fock_calc_ene(dtset,fock,fock_energy,ikpt,nband,occ)
 
 !Local variables-------------------------------
  integer :: iband
- 
+
 ! *************************************************************************
- 
+
  do iband=1,nband
    ! Select only the occupied states (such that fock%occ_bz > 10^-8)
+
    if (abs(occ(iband))>tol8) then
-     fock_energy=fock_energy + half*fock%eigen_ikpt(iband)*occ(iband)*dtset%wtk(ikpt)
+!     fock_energy=fock_energy + half*fock%eigen_ikpt(iband)*occ(iband)*dtset%wtk(ikpt)
      !* Sum the contribution of each occupied states at point k_i
      !* No need to multiply %wtk by ucvol since there is no factor 1/ucvol in the definition of %wtk
-   end if
+
 !* accumulate Fock contributions to the forces.
-   if (fock%optfor) then
-     fock%forces(:,:)=fock%forces(:,:)+occ(iband)*dtset%wtk(ikpt)*fock%forces_ikpt(:,:,iband)
-   endif
+!     if (fock%optfor) then
+       fock%forces(:,:)=fock%forces(:,:)+occ(iband)*dtset%wtk(ikpt)*fock%forces_ikpt(:,:,iband)
+!     endif
+   end if
  end do
+
 
 end subroutine fock_calc_ene
 !!***
@@ -1598,12 +1622,11 @@ end subroutine fock_calc_ene
 !!
 !!  energies <type(energies_type)>=storage for energies computed here :
 !!   | e_fock= Fock contribution to the total energy (Hartree)
-!! 
+!!
 !! NOTES
 !!   If the cgocc_bz are not updated at each iteration, be careful to calculate Fock energy at the same frequency.
 !!
 !! PARENTS
-!!      scfcv
 !!
 !! CHILDREN
 !!      ptabs_fourdp,timab,xmpi_sum
@@ -1626,12 +1649,12 @@ subroutine fock_update_exc(fock_energy,xc_energy,xcdc_energy)
  real(dp),intent(inout) :: xc_energy,xcdc_energy
 
 ! *************************************************************************
- 
+
 !xc_energy = fock%hybrid_mixing*fock_energy
 !xcdc_energy = two*fock%hybrid_mixing*fock_energy
  xc_energy =  fock_energy
  xcdc_energy = two*fock_energy
-!CMartins : For an atom, ewald should be set to zero (at the beginning of the loop) and 
+!CMartins : For an atom, ewald should be set to zero (at the beginning of the loop) and
 !the contribution in !|q+G|=0 should be an approximation to the missing component of Vloc in G=0
 !energies%e_ewald=energies%e_ewald-half*fock%divgq0*fock%wtk_bz(1)*piinv
 
@@ -1652,7 +1675,7 @@ end subroutine fock_update_exc
 !!  cprj(natom,mcprj) <type(pawcprj_type)>= projected input wave functions <Proj_i|Cnk> with NL projectors
 !!  dtset <type(dataset_type)>=all input variables for this dataset
 !!  fock <type(fock_type)>= all the quantities to calculate Fock exact exchange
-!!  indsym(4,nsym,natom) :: 1:3 shift, and 4 final atom, of symmetry isym operating on iatom 
+!!  indsym(4,nsym,natom) :: 1:3 shift, and 4 final atom, of symmetry isym operating on iatom
 !!                            (S^{-1}(R - t) = r0 + L, see symatm.F90
 !!  istep=index of the number of steps in the routine scfcv
 !!  mcg=size of wave-functions array (cg) =mpw*nspinor*mband*mkmem*nsppol
@@ -1668,7 +1691,7 @@ end subroutine fock_update_exc
 !!
 !! SIDE EFFECTS
 !!   The field fock%cgocc_bz contains the table cg at the end.
-!!   The fields kg_bz, occ_bz and fock%cwaveocc_prj are simultaneously updated. 
+!!   The fields kg_bz, occ_bz and fock%cwaveocc_prj are simultaneously updated.
 !!
 !! NOTES
 !!
@@ -1679,7 +1702,7 @@ end subroutine fock_update_exc
 !! May be improved by selecting only the occupied states with the same spin isppol.
 !!
 !! PARENTS
-!!      forstr,scfcv
+!!      scfcv
 !!
 !! CHILDREN
 !!      ptabs_fourdp,timab,xmpi_sum
@@ -1687,7 +1710,7 @@ end subroutine fock_update_exc
 !! SOURCE
 
 subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,mcprj,&
-&                              mpi_enreg,npwarr,occ,ucvol)
+&                              mpi_enreg,nattyp,npwarr,occ,ucvol)
 
 
 !This section has been created automatically by the script Abilint (TD).
@@ -1707,31 +1730,31 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
  real(dp), intent(inout) :: fock_energy
  type(dataset_type),intent(in) :: dtset
  type(fock_type),intent(inout),pointer :: fock
- type(MPI_type),intent(inout) :: mpi_enreg
+ type(MPI_type),intent(in) :: mpi_enreg
 !arrays
- integer, intent(in) :: indsym(4,dtset%nsym,dtset%natom),npwarr(dtset%nkpt)
+ integer, intent(in) :: indsym(4,dtset%nsym,dtset%natom),nattyp(dtset%ntypat),npwarr(dtset%nkpt)
  real(dp),intent(in) :: cg(2,mcg),occ(dtset%mband*dtset%nkpt*dtset%nsppol)
  type(pawcprj_type),intent(in) :: cprj(dtset%natom,mcprj)
- 
+
 !Local variables-------------------------------
 !scalars
  integer,parameter :: tim_fourwf0=0
- integer :: iatom,iband,iband0,iband_cprj,ibg,icg,icp,ier,ikpt,isize,isppol,itypat,jbg,jcg,jkg,jkpt,jpw,jstwfk!,ii1,ii2
+ integer :: iatm,iatom,iband,iband0,iband_cprj,ibg,icg,icp,ier,ikpt,ilmn,isize,ispinor,isppol,itypat,jbg,jcg,jkg,jkpt,jpw,jstwfk!,ii1,ii2
  integer :: lmnmax,mband,mband0,mgfft,mkpt,mpw,my_jsppol,my_jband,my_jkpt
  integer :: nband,ncpgr,n4,n5,n6,nkpt_bz,npwj,nsppol,nspinor
  real(dp),parameter :: weight1=one
- real(dp) :: cgre,cgim,invucvol 
- character(len=500) :: message               
+ real(dp) :: cgre,cgim,invucvol
+ character(len=500) :: message
 ! arrays
  integer :: ngfft(18)
  integer, ABI_CONTIGUOUS pointer :: gbound_k(:,:),kg_k(:,:)
- integer,allocatable :: dimlmn(:),indlmn(:,:,:),indsym_(:,:,:)
- real(dp) :: tsec(2),tsec2(2)
+ integer,allocatable :: dimlmn(:),indlmn(:,:,:),indsym_(:,:,:),typat_srt(:)
+ real(dp) :: tsec(2),tsec2(2),dcp(3)
  real(dp),allocatable :: cgocc_tmp(:),cgocc(:,:),dummytab2(:,:),dummytab3(:,:,:),phase_jkpt(:,:)
  type(pawcprj_type),allocatable :: cprj_tmp(:,:)
 
 ! *************************************************************************
- 
+
 ! DEBUG
 ! write (std_out,*) ' fock_updatecwaveocc : enter'
 ! ENDDEBUG
@@ -1742,7 +1765,7 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
 
  if (associated(fock)) then
 
-   if (mod(istep-1,fock%nnsclo_hf)==0) then 
+   if (mod(istep-1,fock%nnsclo_hf)==0) then
      invucvol=1.d0/sqrt(ucvol)
 ! Local variables = useful dimensions
      mband=fock%mband
@@ -1765,16 +1788,12 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
        ngfft=dtset%ngfftdg
        ABI_DATATYPE_ALLOCATE(cprj_tmp,(dtset%natom,nspinor))
        ABI_ALLOCATE(dimlmn,(dtset%natom))
-       do iatom=1,dtset%natom
-         dimlmn(iatom)=fock%pawtab(dtset%typat(iatom))%lmn_size
-       end do
+       call pawcprj_getdim(dimlmn,dtset%natom,nattyp,dtset%ntypat,dtset%typat,fock%pawtab,"O")
        ncpgr = 0
-       if (dtset%optforces/= 0 .and. dtset%optstress == 0) then
-         ncpgr = 3 
-!       else if (dtset%optstress /= 0) then
-!         ncpgr = 9 
-       end if
+       if (dtset%optforces/= 0) ncpgr = 3
+       if (dtset%optstress /= 0) ncpgr = 6
        call pawcprj_alloc(cprj_tmp,ncpgr,dimlmn)
+
        lmnmax=maxval(fock%pawtab(:)%lmn_size)
        ABI_ALLOCATE(indlmn,(6,lmnmax,dtset%ntypat))
        do itypat=1,dtset%ntypat
@@ -1782,19 +1801,29 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
          indlmn(:,1:isize,itypat)=fock%pawtab(itypat)%indlmn(:,1:isize)
        end do
        ABI_ALLOCATE(indsym_,(4,dtset%nsym,dtset%natom))
-       indsym_=indsym
+       ABI_ALLOCATE(typat_srt,(dtset%natom))
+
        if (dtset%nsym==1) then
-         indsym_=1
+         indsym_=0
          do iatom=1,dtset%natom
+           iatm=fock%atindx(iatom)
+           typat_srt(iatm)=dtset%typat(iatom)
            indsym_(4,:,iatom)=iatom
          end do
+       else
+         do iatom=1,dtset%natom
+           iatm=fock%atindx(iatom)
+           typat_srt(iatm)=dtset%typat(iatom)
+           indsym_(1:3,:,iatm)=indsym(1:3,:,iatom)
+           indsym_(4,:,iatm)=fock%atindx(indsym(4,:,iatom))
+       end do
        end if
      end if
 
 ! Local variables to perform FFT
      n4=ngfft(4) ; n5=ngfft(5) ; n6=ngfft(6)
      ABI_ALLOCATE(dummytab3,(n4,n5,n6))
-     ABI_ALLOCATE(dummytab2,(2,1))
+
 
      if(ANY(fock%calc_phase(:)/=0)) then
        ABI_ALLOCATE(phase_jkpt,(2,mpw))
@@ -1805,7 +1834,7 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
 ! =======================================================
 ! === Update the data relative to the occupied states ===
 ! =======================================================
-!* The arrays cgocc_bz, kg_bz, occ_bz and npwarr_bz are already allocated with the maximal size. 
+!* The arrays cgocc_bz, kg_bz, occ_bz and npwarr_bz are already allocated with the maximal size.
 !     if ((dtset%kptopt>=1).and.(dtset%kptopt<=4)) then
 !       if (dtset%kptopt/=3) then
 
@@ -1813,7 +1842,7 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
        jbg=0 ; jcg=0 ; jkg=0 ; icp=0
        my_jsppol=isppol
        if ((isppol==2).and.(mpi_enreg%nproc_kpt/=1)) my_jsppol=1
-!* Both spins are treated on the same proc., only in the case where nproc_kpt=1; 
+!* Both spins are treated on the same proc., only in the case where nproc_kpt=1;
 !* otherwise each proc. treats only one spin.
 
        ! MG: This loop is not effient!
@@ -1835,14 +1864,14 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
 !               cycle
 !             end if
          my_jkpt=my_jkpt+1
-         
+
          ikpt=fock%tab_ikpt(my_jkpt)
 
 !* ikpt = the point of IBZ that jkpt is an image of in BZ
          npwj=npwarr(ikpt)
-!* npwj= number of plane wave in basis for the wavefunction 
-         jstwfk=fock%istwfk_bz(my_jkpt)     
-!* jstwfk= how is stored the wavefunction 
+!* npwj= number of plane wave in basis for the wavefunction
+         jstwfk=fock%istwfk_bz(my_jkpt)
+!* jstwfk= how is stored the wavefunction
          ibg=fock%tab_ibg(my_jkpt,my_jsppol)
 !* ibg = shift to be applied on the location of data in the array occ
          icg=fock%tab_icg(my_jkpt,my_jsppol)
@@ -1857,10 +1886,7 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
            phase_jkpt(:,1:npwj)=fock%phase(:,1+jkg:npwj+jkg)
          end if
 !* phase factor at k-point j
-!write(52,*) ikpt,npwj, jstwfk,ibg,icg,icp,fock%calc_phase(my_jkpt),fock%tab_symkpt(my_jkpt),fock%timerev(my_jkpt),&
-!&            fock%kptns_bz(1,my_jkpt),fock%kptns_bz(2,my_jkpt),fock%kptns_bz(3,my_jkpt),dtset%kptns(:,ikpt),&
-!&            indsym_(:,fock%tab_symkpt(my_jkpt),1)
-!write(53,*) my_jkpt,fock%tab_symkpt(my_jkpt),indsym(:,fock%tab_symkpt(my_jkpt),1)
+
 !* Initialize the band counter
          my_jband=0
          do iband=1,dtset%nband(ikpt)
@@ -1870,11 +1896,12 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
            if (fock%usepaw==1) then
              call pawcprj_set_zero(cprj_tmp)
            end if
+
            if(ABS(occ(iband+ibg))>tol8) then
 !* If the band is occupied
 
 !* To avoid segmentation fault, my_jband should not be greater than nbandhf
-             if ((my_jband+1)>mband) then 
+             if ((my_jband+1)>mband) then
                write(message,*) 'The number of occupied band',my_jband+1,' at k-point',&
 &                 ikpt,' is greater than the value of nbandhf ', mband
                MSG_ERROR(message)
@@ -1895,8 +1922,7 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
 !* increment the number of occupied bands treated on this processor
              my_jband = my_jband+1
 
-
-!* In this case, the processor calculates the exchange with the occupied state (jkpt,my_jband). 
+!* In this case, the processor calculates the exchange with the occupied state (jkpt,my_jband).
              if (mpi_enreg%proc_distrb(ikpt,iband,isppol)==mpi_enreg%me_kpt) then
 !* The state (ikpt,iband,isppol) is stored in the array cg of this processor and copied in cgocc_tmp.
                if(icg==-1) then
@@ -1908,23 +1934,23 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
                cgocc_tmp(npwj+2:2*npwj+1)=cg(2,1+(iband-1)*npwj+icg:iband*npwj+icg)
                if (fock%usepaw==1) then
                  call pawcprj_copy(cprj(:,icp+iband:icp+iband+nspinor-1),cprj_tmp)
-!write(92,*) jkpt, my_jband,cprj(1,icp+iband)%cp
                end if
              end if
+
 !* Broadcast the state (ikpt,iband,isppol) to all the processors of comm_kpt for cgocc
              call timab(1503,1,tsec2)
              call xmpi_bcast(cgocc_tmp,mpi_enreg%proc_distrb(ikpt,iband,isppol),mpi_enreg%comm_kpt,ier)
-             
+
 !* Broadcast the state (ikpt,iband,isppol) to all the processors of comm_kpt for cprj
              if (fock%usepaw==1) then
                call pawcprj_bcast(cprj_tmp,dtset%natom,nspinor,dimlmn,ncpgr,mpi_enreg%proc_distrb(ikpt,iband,isppol),&
 &               mpi_enreg%comm_kpt,ier)
              end if
              call timab(1503,2,tsec2)
-!* Keep the processors in %comm_kpt which needs the values in cgocc_tmp to build their own %cwaveocc and %occ_bz. 
+!* Keep the processors in %comm_kpt which needs the values in cgocc_tmp to build their own %cwaveocc and %occ_bz.
              if ((mpi_enreg%nproc_kpt/=1).and.(nsppol==2)) then
                if (fock%timerev(my_jkpt)==mpi_enreg%my_isppoltab(isppol)) cycle
-!* In the case of a parallel spin-polarized calculation 
+!* In the case of a parallel spin-polarized calculation
 !* when time reversal symmetry is applied at this k-point (timrev==1), only the processors with the opposite spin (my_isppoltab==0) are kept.
 !* when time reversal symmetry is not applied at this k-point (timrev==0), only the processors with the same spin (my_isppoltab==1) are kept.
 
@@ -1950,62 +1976,57 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
                  cgocc(1,jpw) = phase_jkpt(1,jpw)*cgre - phase_jkpt(2,jpw)*cgim
                  cgocc(2,jpw) = phase_jkpt(1,jpw)*cgim + phase_jkpt(2,jpw)*cgre
                end do
-!               if (fock%usepaw==1) then
-!                 cgre=cprj_tmp(1,jpw) ; cgim=cprj_tmp(2,jpw)
-!                 cprj_tmp(1,jpw) = phase_jkpt(1,jpw)*cgre - phase_jkpt(2,jpw)*cgim
-!                 cprj_tmp(2,jpw) = phase_jkpt(1,jpw)*cgim + phase_jkpt(2,jpw)*cgre
-!               end if
              end if ! phase
 
 !* apply time reversal symmetry if necessary
-             if (fock%timerev(my_jkpt)==1) then 
+             if (fock%timerev(my_jkpt)==1) then
                cgocc(2,:) = - cgocc(2,:)
                if((mpi_enreg%nproc_kpt==1).and.(nsppol==2)) my_jsppol=mod(my_jsppol,2)+1
 !* exchange spin (1 ->2 ; 2-> 1) in the sequential case.
              end if
 
 !* apply FFT to get cwaveocc in real space
+
              if (allocated(fock%cwaveocc_bz)) then
-               call fourwf(0,dummytab3,cgocc,dummytab2,fock%cwaveocc_bz(:,:,:,:,my_jband+jbg,my_jsppol), &
+
+               ABI_ALLOCATE(dummytab2,(2,npwj))
+               call fourwf(1,dummytab3,cgocc(:,1:npwj),dummytab2,fock%cwaveocc_bz(:,:,:,:,my_jband+jbg,my_jsppol), &
 &               gbound_k,gbound_k,jstwfk,kg_k,kg_k,mgfft,mpi_enreg,1,ngfft,&
-&               npwj,1,n4,n5,n6,tim_fourwf0,dtset%paral_kgb,0,weight1,weight1,use_gpu_cuda=dtset%use_gpu_cuda)
+&               npwj,npwj,n4,n5,n6,tim_fourwf0,dtset%paral_kgb,0,weight1,weight1,use_gpu_cuda=dtset%use_gpu_cuda)
+               ABI_DEALLOCATE(dummytab2)
 
              else
-!               fock%cgocc(:,1+(my_jband+jbg-1)*mpw:(my_jband+jbg-1)*mpw+npwj,my_jsppol)=cgocc(:,1:npwj)
                fock%cgocc(:,jcg+1+(my_jband-1)*npwj:jcg+my_jband*npwj,my_jsppol)=cgocc(:,1:npwj)
              end if
-!write(94,*) jkpt, my_jband,fock%cwaveocc_bz(:,1:10,1,1,my_jband+jbg,my_jsppol)
-!read(94,*) ii1,ii2,fock%cwaveocc_bz(:,:,:,:,my_jband+jbg,my_jsppol)
+
 !* calculate cprj and store it in cwaveocc_prj
              if (fock%usepaw==1) then
                iband_cprj=(my_jsppol-1)*fock%mkptband+jbg+my_jband
-!               if (fock%calc_phase(my_jkpt)==1) then
                nband=1;mband0=1;iband0=1
                call pawcprj_symkn(fock%cwaveocc_prj(:,iband_cprj:iband_cprj+nspinor-1),cprj_tmp(:,1:nspinor),&
 &               indsym_,dimlmn,iband0,indlmn,&
 &               fock%tab_symkpt(my_jkpt),fock%timerev(my_jkpt),dtset%kptns(:,ikpt),fock%pawang%l_max-1,lmnmax,&
-&               mband0,dtset%natom,nband,nspinor,dtset%nsym,dtset%ntypat,dtset%typat,fock%pawang%zarot)
-!call pawcprj_copy(cprj_tmp,fock%cwaveocc_prj(:,iband_cprj:iband_cprj+nspinor-1))
-!write(95,*) jkpt, my_jband,fock%cwaveocc_prj(1,iband_cprj)%cp
-!flush(95)
-!               else
-!                 if (fock%timerev(my_jkpt)==1) then 
-!                  call pawcprj_conjg(cprj_tmp)
-!                 end if
-!                 call pawcprj_copy(cprj_tmp,fock%cwaveocc_prj(:,iband_cprj:iband_cprj+nspinor-1))
-!write(96,*) jkpt, my_jband,fock%cwaveocc_prj(1,iband_cprj)%cp
-!read(95,*) ii1,ii2,fock%cwaveocc_prj(1,iband_cprj)%cp,fock%cwaveocc_prj(2,iband_cprj)%cp
-!               end if
-
+&               mband0,dtset%natom,nband,nspinor,dtset%nsym,dtset%ntypat,typat_srt,fock%pawang%zarot,atindx=fock%atindx)
+               if(fock%optfor) then
+                 do iatom=1,dtset%natom
+                   iatm=fock%atindx(iatom)
+                   do ispinor=iband_cprj,iband_cprj+nspinor-1
+                     if(fock%cwaveocc_prj(iatm,ispinor)%ncpgr>0) then
+                       do ilmn=1,fock%pawtab(dtset%typat(iatom))%lmn_size
+                         !MT aug 2017: has to use BLAS because of increment in array dcp
+                         CALL DGEMV('T',3,3,one,fock%symrec(:,:,fock%tab_symkpt(my_jkpt)),3,&
+ &                                  fock%cwaveocc_prj(iatm,ispinor)%dcp(1,1,ilmn),2,zero,dcp,1)
+                         fock%cwaveocc_prj(iatm,ispinor)%dcp(1,:,ilmn)=dcp(:)
+                         CALL DGEMV('T',3,3,one,fock%symrec(:,:,fock%tab_symkpt(my_jkpt)),3,&
+ &                                  fock%cwaveocc_prj(iatm,ispinor)%dcp(2,1,ilmn),2,zero,dcp,1)
+                         fock%cwaveocc_prj(iatm,ispinor)%dcp(2,:,ilmn)=dcp(:)
+                       end do
+                     end if
+                   end do
+                 end do
+               end if
              end if
-!               else
-!* The band is empty ; the array cgocc_tmp remains equal to 0.d0.
-!                 if (mpi_enreg%proc_distrb(jkpt,jband,jsppol)==mpi_enreg%me_kpt) then
-!* The state (jkpt,jband,jsppol) is stored in the array cg of this processor ; shift are incremented.
-!                   icg=icg+npwj
-!                 end if
 
-             
            end if ! band occupied
 
 !* update the shift to apply to occ in all case because this array is not distributed among the proc.
@@ -2031,20 +2052,22 @@ subroutine fock_updatecwaveocc(cg,cprj,dtset,fock,fock_energy,indsym,istep,mcg,m
      if (fock%usepaw==1) then
        ABI_DEALLOCATE(indlmn)
        ABI_DEALLOCATE(indsym_)
+       ABI_DEALLOCATE(typat_srt)
        ABI_DEALLOCATE(dimlmn)
        call pawcprj_free(cprj_tmp)
        ABI_DATATYPE_DEALLOCATE(cprj_tmp)
      end if
-     if(allocated(phase_jkpt)) then 
+     if(allocated(phase_jkpt)) then
        ABI_DEALLOCATE(phase_jkpt)
      end if
      ABI_DEALLOCATE(dummytab3)
-     ABI_DEALLOCATE(dummytab2)
+
 
 ! Restricted or unrestricted HF
-     if (nsppol==1) then 
-!* Update the array %occ_bz => May be limited to the occupied states only 
+     if (nsppol==1) then
+!* Update the array %occ_bz => May be limited to the occupied states only
        fock%occ_bz(:,:)=half*fock%occ_bz(:,:)
+
 ! If nsppol=1, this is a restricted Hartree-Fock calculation.
 ! If nsppol=2, this is an unrestricted Hartree-Fock calculation.
      end if
@@ -2141,7 +2164,7 @@ end function fock_get_getghc_call
 
 !!****f* m_fock/fock_print
 !! NAME
-!!  fock_print 
+!!  fock_print
 !!
 !! FUNCTION
 !!  Print info on the fock_type data type
@@ -2154,7 +2177,7 @@ end function fock_get_getghc_call
 !!  [header]=String to be printed as header for additional info.
 !!
 !! OUTPUT
-!!  Only printing 
+!!  Only printing
 !!
 !! PARENTS
 !!      m_fock
@@ -2164,7 +2187,7 @@ end function fock_get_getghc_call
 !!
 !! SOURCE
 
-subroutine fock_print(fock,header,unit,mode_paral,prtvol) 
+subroutine fock_print(fock,header,unit,mode_paral,prtvol)
 
 
 !This section has been created automatically by the script Abilint (TD).
@@ -2179,19 +2202,19 @@ subroutine fock_print(fock,header,unit,mode_paral,prtvol)
 !Arguments ------------------------------------
 !scalars
  integer,optional,intent(in) :: unit,prtvol
- character(len=4),optional,intent(in) :: mode_paral 
+ character(len=4),optional,intent(in) :: mode_paral
  character(len=*),optional,intent(in) :: header
  type(fock_type),intent(in) :: fock
 
 !Local variables-------------------------------
  integer :: my_unt,my_prtvol
  character(len=4) :: my_mode
- character(len=500) :: msg      
+ character(len=500) :: msg
 
-! ********************************************************************* 
+! *********************************************************************
 
  my_unt=std_out; if (PRESENT(unit)) my_unt=unit
- my_prtvol=0 ; if (PRESENT(prtvol)) my_prtvol=prtvol 
+ my_prtvol=0 ; if (PRESENT(prtvol)) my_prtvol=prtvol
  my_mode='COLL' ; if (PRESENT(mode_paral)) my_mode=mode_paral
 
  msg=' ==== Info on fock_type ==== '
@@ -2245,7 +2268,7 @@ end subroutine fock_print
 !!  ngfft(18)=contain all needed information about 3D FFT, see ~abinit/doc/input_variables/vargs.htm#ngfft
 !!
 !! OUTPUT
-!!  vqg(nfft)=4pi/(G+q)**2, G=0 component is set to divgq0/pi if q = Gamma. 
+!!  vqg(nfft)=4pi/(G+q)**2, G=0 component is set to divgq0/pi if q = Gamma.
 !!
 !! NOTES
 !!  This routine operates on the full FFT mesh. DO NOT PASS MPI_TYPE
@@ -2260,7 +2283,7 @@ end subroutine fock_print
 !!
 !! SOURCE
 
-subroutine bare_vqg(qphon,gsqcut,gmet,izero,hybrid_mixing,hybrid_mixing_sr,hybrid_range,nfft,nkpt_bz,ngfft,ucvol,vqg) 
+subroutine bare_vqg(qphon,gsqcut,gmet,izero,hybrid_mixing,hybrid_mixing_sr,hybrid_range,nfft,nkpt_bz,ngfft,ucvol,vqg)
 
 
 !This section has been created automatically by the script Abilint (TD).
@@ -2305,7 +2328,7 @@ subroutine bare_vqg(qphon,gsqcut,gmet,izero,hybrid_mixing,hybrid_mixing_sr,hybri
 !For the time being, only Spencer-Alavi scheme...
  rcut= (three*nkpt_bz*ucvol/four_pi)**(one/three)
  divgq0= two_pi*rcut**two
-
+!divgq0=zero
 !Initialize a few quantities
  n1=ngfft(1); n2=ngfft(2); n3=ngfft(3)
  cutoff=gsqcut*tolfix
@@ -2378,6 +2401,7 @@ subroutine bare_vqg(qphon,gsqcut,gmet,izero,hybrid_mixing,hybrid_mixing_sr,hybri
 !        Spencer-Alavi screening
          if (abs(hybrid_mixing)>tol8) &
 &          vqg(ii)=vqg(ii)+hybrid_mixing*den*(one-cos(rcut*sqrt(four_pi/den)))
+!&          vqg(ii)=vqg(ii)+hybrid_mixing*den
 !        Erfc screening
          if (abs(hybrid_mixing_sr)>tol8) &
 &          vqg(ii)=vqg(ii)+hybrid_mixing_sr*den*(one-exp(-pi/(den*hybrid_range**2)))
@@ -2391,7 +2415,7 @@ subroutine bare_vqg(qphon,gsqcut,gmet,izero,hybrid_mixing,hybrid_mixing_sr,hybri
    ! Set contribution of unbalanced components to zero
    if (qeq0==1) then !q=0
      call zerosym(vqg,cplex1,n1,n2,n3)
-   else if (qeq05==1) then 
+   else if (qeq05==1) then
      !q=1/2; this doesn't work in parallel
      ig1=-1;if (mod(n1,2)==0) ig1=1+n1/2
      ig2=-1;if (mod(n2,2)==0) ig2=1+n2/2
@@ -2426,14 +2450,13 @@ end subroutine bare_vqg
 !! Compute Fock energy contribution to stress tensor (Cartesian coordinates).
 !!
 !! COPYRIGHT
-!! Copyright (C) 1998-2016 ABINIT group (FJ)
+!! Copyright (C) 1998-2017 ABINIT group (FJ)
 !! This file is distributed under the terms of the
 !! GNU General Public License, see ~abinit/COPYING
 !! or http://www.gnu.org/copyleft/gpl.txt .
 !! For the initials of contributors, see ~abinit/doc/developers/contributors.txt .
 !!
 !! INPUTS
-!!  efock=Fock energy (hartree)
 !!  gsqcut=cutoff value on $G^2$ for (large) sphere inside fft box.
 !!  $gsqcut=(boxcut^2)*ecut/(2._dp*(\pi^2))$
 !!  gprimd(3,3)=reciprocal space dimensional primitive translations
@@ -2446,7 +2469,7 @@ end subroutine bare_vqg
 !!  nkpt_bz= number of k points in the BZ
 !!  qphon(3)=reduced coordinates for the phonon wavelength (needed if cplex==2).
 !!  rhog(2,nfft)=Fourier transform of charge density (bohr^-3)
-!!  rhog(2,nfft)= optional argument: Fourier transform of a second charge density (bohr^-3)
+!!  rhog2(2,nfft)= optional argument: Fourier transform of a second charge density (bohr^-3)
 !!  ucvol=unit cell volume (bohr^3)
 !!  vqg(nfft)=4pi/(G+q)**2
 !!
@@ -2471,7 +2494,7 @@ end subroutine bare_vqg
 #include "abi_common.h"
 
 
-subroutine strfock(efock,gprimd,gsqcut,fockstr,hybrid_mixing,hybrid_mixing_sr,hybrid_range,mpi_enreg,nfft,ngfft,&
+subroutine strfock(gprimd,gsqcut,fockstr,hybrid_mixing,hybrid_mixing_sr,hybrid_range,mpi_enreg,nfft,ngfft,&
 &                  nkpt_bz,rhog,ucvol,qphon,&
 &                 rhog2) ! optional argument
 
@@ -2488,7 +2511,7 @@ subroutine strfock(efock,gprimd,gsqcut,fockstr,hybrid_mixing,hybrid_mixing_sr,hy
 !Arguments ------------------------------------
 !scalars
  integer,intent(in) :: nfft,nkpt_bz
- real(dp),intent(in) :: efock,gsqcut,hybrid_mixing,hybrid_mixing_sr,hybrid_range,ucvol
+ real(dp),intent(in) :: gsqcut,hybrid_mixing,hybrid_mixing_sr,hybrid_range,ucvol
  type(MPI_type),intent(in) :: mpi_enreg
 !arrays
  integer,intent(in) :: ngfft(18)
@@ -2500,7 +2523,7 @@ subroutine strfock(efock,gprimd,gsqcut,fockstr,hybrid_mixing,hybrid_mixing_sr,hy
 !scalars
  integer,parameter :: im=2,re=1
  integer :: i1,i2,i3,id1,id2,id3,ierr,ig1,ig2,ig3,ii,irho2,me_fft,n1,n2,n3,nproc_fft
- real(dp) :: arg,cutoff,gsquar,rcut,rhogsq,tolfix=1.000000001_dp,tot
+ real(dp) :: arg,cutoff,gsquar,rcut,rhogsq,tolfix=1.000000001_dp,tot,tot1,divgq0
  character(len=100) :: msg
 !arrays
  real(dp) :: gcart(3),tsec(2)
@@ -2517,9 +2540,9 @@ subroutine strfock(efock,gprimd,gsqcut,fockstr,hybrid_mixing,hybrid_mixing_sr,hy
  end if
 
  fockstr(:)=zero
-!ehtest=0.0_dp (used for testing)
  rcut= (three*nkpt_bz*ucvol/four_pi)**(one/three)
  irho2=0;if (present(rhog2)) irho2=1
+ divgq0=two_pi/three*rcut**2
 
 !Conduct looping over all fft grid points to find G vecs inside gsqcut
 !Include G**2 on surface of cutoff sphere as well as inside:
@@ -2542,44 +2565,51 @@ subroutine strfock(efock,gprimd,gsqcut,fockstr,hybrid_mixing,hybrid_mixing_sr,hy
      ig2=i2-(i2/id2)*n2-1
      if (fftn2_distrib(i2)==me_fft) then
        do i1=1,n1
-         tot=zero
+         tot=zero; tot1=zero
          ig1=i1-(i1/id1)*n1-1
-!        ii=ii+1
          ii=i1+n1*(ffti2_local(i2)-1+(n2/nproc_fft)*(i3-1))
-!        **     GET RID OF THIS IF STATEMENT LATER for speed if needed
-!        Avoid G=0:
-!        if (ii>1) then
-!         if (nint(ig1+qphon(1))==0 .and. nint(ig2+qphon(2))==0 .and. nint(ig3+qphon(3))==0) cycle
+
 !        Compute cartesian components of G
          gcart(1)=gprimd(1,1)*(dble(ig1)+qphon(1))+gprimd(1,2)*(dble(ig2)+qphon(2))+gprimd(1,3)*(dble(ig3)+qphon(3))
          gcart(2)=gprimd(2,1)*(dble(ig1)+qphon(1))+gprimd(2,2)*(dble(ig2)+qphon(2))+gprimd(2,3)*(dble(ig3)+qphon(3))
          gcart(3)=gprimd(3,1)*(dble(ig1)+qphon(1))+gprimd(3,2)*(dble(ig2)+qphon(2))+gprimd(3,3)*(dble(ig3)+qphon(3))
 !        Compute |G+q|^2
          gsquar=gcart(1)**2+gcart(2)**2+gcart(3)**2
-         if(gsquar<tol10) cycle 
 !        take |rho(G)|^2 for complex rhog
          if (irho2==0) then
            rhogsq=rhog(re,ii)**2+rhog(im,ii)**2
          else
            rhogsq=rhog(re,ii)*rhog2(re,ii)+rhog(im,ii)*rhog2(im,ii)
          end if
+!        Case G=0:
+         if(gsquar<tol10) then
+           if (abs(hybrid_mixing_sr)>tol8) cycle
+           if (abs(hybrid_mixing)>tol8) then
+             fockstr(1)=fockstr(1)+hybrid_mixing*divgq0*rhogsq
+             fockstr(2)=fockstr(2)+hybrid_mixing*divgq0*rhogsq
+             fockstr(3)=fockstr(3)+hybrid_mixing*divgq0*rhogsq
+             cycle
+           end if
+         end if
+
 !        Spencer-Alavi screening
          if (abs(hybrid_mixing)>tol8) then
            arg=two_pi*rcut*sqrt(gsquar)
-           tot=tot+hybrid_mixing*rhogsq*(1-cos(arg)-arg*sin(arg)/two)/(gsquar**2)
-         end if 
+           tot=hybrid_mixing*rhogsq*piinv/(gsquar**2)*(1-cos(arg)-arg*sin(arg)/two)
+           tot1=hybrid_mixing*rhogsq/three*rcut*sin(arg)/sqrt(gsquar)
+         end if
+
 !        Erfc screening
          if (abs(hybrid_mixing_sr)>tol8) then
            arg=-gsquar*pi**2/(hybrid_range**2)
-           tot=tot+hybrid_mixing_sr*rhogsq/(gsquar**2)*(1.d0-exp(arg)*(1-arg))
+           tot=tot+hybrid_mixing_sr*rhogsq*piinv/(gsquar**2)*(1.d0-exp(arg)*(1-arg))
          end if
-         fockstr(1)=fockstr(1)+tot*gcart(1)*gcart(1)
-         fockstr(2)=fockstr(2)+tot*gcart(2)*gcart(2)
-         fockstr(3)=fockstr(3)+tot*gcart(3)*gcart(3)
+         fockstr(1)=fockstr(1)+tot*gcart(1)*gcart(1)+tot1
+         fockstr(2)=fockstr(2)+tot*gcart(2)*gcart(2)+tot1
+         fockstr(3)=fockstr(3)+tot*gcart(3)*gcart(3)+tot1
          fockstr(4)=fockstr(4)+tot*gcart(3)*gcart(2)
-         fockstr(5)=fockstr(5)+tot*gcart(3)*gcart(1) 
+         fockstr(5)=fockstr(5)+tot*gcart(3)*gcart(1)
          fockstr(6)=fockstr(6)+tot*gcart(2)*gcart(1)
-
        end do
      end if
    end do
@@ -2600,18 +2630,16 @@ subroutine strfock(efock,gprimd,gsqcut,fockstr,hybrid_mixing,hybrid_mixing_sr,hy
 #ifdef FC_IBM
 !DO not remove : seems needed to avoid problem with pathscale compiler, in parallel
  write(std_out,*)' strfock : after mpi_comm, fockstr=',fockstr
- write(std_out,*)' strfock : efock,ucvol=',efock,ucvol
 #endif
 
 !Normalize and add term -efock/ucvol on diagonal
 !efock has been set to zero because it is not yet known. It will be added later.
- fockstr(1)=fockstr(1)/pi-efock/ucvol
- fockstr(2)=fockstr(2)/pi-efock/ucvol
- fockstr(3)=fockstr(3)/pi-efock/ucvol
- fockstr(4)=fockstr(4)/pi
- fockstr(5)=fockstr(5)/pi
- fockstr(6)=fockstr(6)/pi
-
+ fockstr(1)=-fockstr(1)
+ fockstr(2)=-fockstr(2)
+ fockstr(3)=-fockstr(3)
+ fockstr(4)=-fockstr(4)
+ fockstr(5)=-fockstr(5)
+ fockstr(6)=-fockstr(6)
 
  call timab(568,2,tsec)
 

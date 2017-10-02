@@ -9,7 +9,7 @@
 !! Pay attention that the FFT grid must be compatible with the symmetry operations (see irrzg.f).
 !!
 !! COPYRIGHT
-!! Copyright (C) 1998-2016 ABINIT group (DCA, XG, GMR, MM)
+!! Copyright (C) 1998-2017 ABINIT group (DCA, XG, GMR, MM)
 !! This file is distributed under the terms of the
 !! GNU General Public License, see ~abinit/COPYING
 !! or http://www.gnu.org/copyleft/gpl.txt .
@@ -75,6 +75,7 @@ subroutine getng(boxcutmin,ecut,gmet,kpt,me_fft,mgfft,nfft,ngfft,nproc_fft,nsym,
  use defs_basis
  use m_errors
  use m_profiling_abi
+ use m_sort
 
  use defs_fftdata,  only : mg
  use m_fftcore,     only : print_ngfft
@@ -84,7 +85,6 @@ subroutine getng(boxcutmin,ecut,gmet,kpt,me_fft,mgfft,nfft,ngfft,nproc_fft,nsym,
 #undef ABI_FUNC
 #define ABI_FUNC 'getng'
  use interfaces_14_hidewrite
- use interfaces_28_numeric_noabirule
  use interfaces_52_fft_mpi_noabirule, except_this_one => getng
 !End of the abilint section
 
@@ -109,7 +109,7 @@ subroutine getng(boxcutmin,ecut,gmet,kpt,me_fft,mgfft,nfft,ngfft,nproc_fft,nsym,
  integer :: plane,testok,tobechecked,ount,fftalga
  real(dp),parameter :: minbox=0.75_dp
  real(dp) :: dsqmax,dsqmin,ecutmx,prodcurrent,prodtrial,xx,yy
- logical :: testdiv 
+ logical :: testdiv
  character(len=500) :: message
  integer,parameter :: largest_ngfft=mg ! Goedecker FFT: any powers of 2, 3, and 5 - must be coherent with defs_fftdata.F90
  integer,parameter :: maxpow2 =16      ! int(log(largest_ngfft+half)/log(two))
@@ -445,12 +445,12 @@ subroutine getng(boxcutmin,ecut,gmet,kpt,me_fft,mgfft,nfft,ngfft,nproc_fft,nsym,
  ngfft(4)=2*(ngfft(1)/2)+1
  ngfft(5)=2*(ngfft(2)/2)+1
  ngfft(6)=ngfft(3)
- if (any(fftalga == [FFT_FFTW3, FFT_DFTI])) then  
+ if (any(fftalga == [FFT_FFTW3, FFT_DFTI])) then
    ! FFTW3 supports leading dimensions but at the price of a larger number of FFTs
    ! to be executed along z when the zero-padded version is used.
    ! One should check whether the augmentation is beneficial for FFTW3.
-   ngfft(4)=2*(ngfft(1)/2)+1  
-   ngfft(5)=2*(ngfft(2)/2)+1  
+   ngfft(4)=2*(ngfft(1)/2)+1
+   ngfft(5)=2*(ngfft(2)/2)+1
    !ngfft(4)=ngfft(1)
    !ngfft(5)=ngfft(2)
    ngfft(6)=ngfft(3)

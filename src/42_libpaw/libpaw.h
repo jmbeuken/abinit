@@ -8,7 +8,7 @@
  */
 
 /*
- * Copyright (C) 2014-2016 ABINIT Group (MT)
+ * Copyright (C) 2014-2017 ABINIT Group (MT)
  * This file is part of the ABINIT software package. For license information,
  * please see the COPYING file in the top-level directory of the ABINIT source
  * distribution.
@@ -55,15 +55,15 @@
 #  define BOUNDS(LBND,UBND) LBND : UBND
 
 /* libXC support */
-#  if defined HAVE_DFT_LIBXC
-#    define LIBPAW_HAVE_LIBXC HAVE_DFT_LIBXC
+#  if defined HAVE_LIBXC
+#    define LIBPAW_HAVE_LIBXC HAVE_LIBXC
 #  else
 #    undef LIBPAW_HAVE_LIBXC
 #  endif
 
 /* Netcdf support */
-#  if defined HAVE_TRIO_NETCDF
-#    define LIBPAW_HAVE_NETCDF HAVE_TRIO_NETCDF
+#  if defined HAVE_NETCDF
+#    define LIBPAW_HAVE_NETCDF HAVE_NETCDF
 #  else
 #    undef LIBPAW_HAVE_NETCDF
 #  endif
@@ -113,7 +113,11 @@
 #  define BOUNDS(LBND,UBND) LBND .to. UBND
 
 /* libXC support */
-#  define LIBPAW_HAVE_LIBXC
+#  if (defined HAVE_LIBXC)
+#    define LIBPAW_HAVE_LIBXC HAVE_LIBXC
+#  else
+#    undef LIBPAW_HAVE_LIBXC
+#  endif
 
 /* Netcdf support */
 #  undef LIBPAW_HAVE_NETCDF
@@ -123,6 +127,7 @@
 
 /* F2008 support */
 #  define LIBPAW_CONTIGUOUS
+#  define LIBPAW_ISO_C_BINDING 1
 
 /* =============================
  * ========= DEFAULT ===========
@@ -170,6 +175,7 @@
 
 /* F2008 support */
 #  define LIBPAW_CONTIGUOUS
+#  define LIBPAW_ISO_C_BINDING 1
 
 /* =============================
  * =========== END =============

@@ -9,7 +9,7 @@
 !! local and non-local potentials.
 !!
 !! COPYRIGHT
-!! Copyright (C) 1998-2016 ABINIT group (DCA, XG, GMR, FrD, MT)
+!! Copyright (C) 1998-2017 ABINIT group (DCA, XG, GMR, FrD, MT)
 !! This file is distributed under the terms of the
 !! GNU General Public License, see ~abinit/COPYING
 !! or http://www.gnu.org/copyleft/gpl.txt .
@@ -112,10 +112,10 @@ subroutine psp1in(dq,ekb,ekb1,ekb2,epsatm,epspsp,&
  integer,intent(out) :: indlmn(6,lmnmax),nproj(mpsang)
  real(dp),intent(in) :: qgrid(mqgrid)
  real(dp),intent(out) :: e990(mpsang),e999(mpsang),ekb(lnmax),ekb1(mpsang)
- real(dp),intent(out) :: ekb2(mpsang),epspsp(mpsang)   !vz_i
- real(dp),intent(inout) :: ffspl(mqgrid,2,lnmax) !vz_i
+ real(dp),intent(out) :: ekb2(mpsang),epspsp(mpsang)
+ real(dp),intent(inout) :: ffspl(mqgrid,2,lnmax)
  real(dp),intent(out) :: rcpsp(mpsang),rms(mpsang),vlspl(mqgrid,2)
- real(dp),intent(inout) :: xccc1d(n1xccc,6) !vz_i
+ real(dp),intent(inout) :: xccc1d(n1xccc,6)
 
 !Local variables-------------------------------
 !scalars
@@ -241,7 +241,6 @@ subroutine psp1in(dq,ekb,ekb1,ekb2,epsatm,epspsp,&
 !  ENDDEBUG
 
  end do
-
 
 !Copy appropriate nonlocal psp for use as local one
  vloc( 1:mmax ) = vpspll( 1:mmax , lloc+1 )

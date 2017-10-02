@@ -13,7 +13,7 @@
 !!  matrix elements of [H.r].
 !!
 !! COPYRIGHT
-!! Copyright (C) 2008-2016 ABINIT group (MG)
+!! Copyright (C) 2008-2017 ABINIT group (MG)
 !! This file is distributed under the terms of the
 !! GNU General Public License, see ~abinit/COPYING
 !! or http://www.gnu.org/copyleft/gpl.txt .
@@ -504,10 +504,10 @@ subroutine pawhur_init(hur,nsppol,pawprtvol,Cryst,Pawtab,Pawang,Pawrad,Paw_ij)
    rij_tmp=zero
 
    ! Get Vpawu^{\sigma}_{m1,m2}
-   ABI_MALLOC(vpawu,(Paw_ij(iatom)%cplex_dij,2*lpawu+1,2*lpawu+1,nsppol))
+   ABI_MALLOC(vpawu,(Paw_ij(iatom)%cplex_dij,2*lpawu+1,2*lpawu+1,Paw_ij(iatom)%ndij))
    call pawpupot(Paw_ij(iatom)%cplex_dij,Paw_ij(iatom)%ndij,&
 &                Paw_ij(iatom)%noccmmp,Paw_ij(iatom)%nocctot,&
-&                nsppol,pawprtvol,Pawtab(itypat),vpawu)
+&                pawprtvol,Pawtab(itypat),vpawu)
 
    do isppol=1,nsppol ! spinor not implemented
 

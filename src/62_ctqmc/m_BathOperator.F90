@@ -11,7 +11,7 @@
 !!  simgle Anderson Impurity Model
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -48,7 +48,7 @@ PRIVATE
 !!  This structured datatype contains the necessary data
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -116,7 +116,7 @@ CONTAINS
 !!  Initialize and allocate data
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -209,7 +209,7 @@ END SUBROUTINE BathOperator_init
 !!  Reset all internal variables
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -276,7 +276,7 @@ END SUBROUTINE BathOperator_reset
 !!  It is better to use the macro defined in defs.h
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -334,7 +334,7 @@ END SUBROUTINE BathOperator_activateParticle
 !!  at time time
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -387,7 +387,7 @@ END FUNCTION BathOperator_hybrid
 !!  is trying to be added and store some array for setMadd
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -560,7 +560,7 @@ END FUNCTION BathOperator_getDetAdd
 !!  is trying to be removed 
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -647,7 +647,7 @@ END FUNCTION BathOperator_getDetRemove
 !!  segments of particle
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -744,7 +744,7 @@ END FUNCTION BathOperator_getDetF
 !!  Update de M this inserting a row and a column
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1022,7 +1022,7 @@ END SUBROUTINE BathOperator_setMAdd
 !!  delete one row and one column of the M this
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1111,19 +1111,19 @@ SUBROUTINE BathOperator_setMRemove(this,particle)
 !  this%R%vec => this%R
 !  this%Q%vec => this%Q
 
-  row      = 1
+  !row      = 1
   !row_move = 1
-  col      = 1
+  !col      = 1
   !col_move = 1
   DO row_move = 1, new_tail
-    IF ( row .EQ. positionRow ) row = row + 1
-    IF ( col .EQ. positionCol ) col = col + 1
-    !col = row_move + (1+SIGN(1,row_move-positionCol))/2
-    !row = row_move + (1+SIGN(1,row_move-positionRow))/2
+    !IF ( row .EQ. positionRow ) row = row + 1
+    !IF ( col .EQ. positionCol ) col = col + 1
+    col = row_move + (1+SIGN(1,row_move-positionCol))/2
+    row = row_move + (1+SIGN(1,row_move-positionRow))/2
     this%R%vec(row_move) = this%M(aF)%mat(positionRow,col)
     this%Q%vec(row_move) = this%M(aF)%mat(row,positionCol)
-    row      = row + 1 
-    col      = col + 1
+    !row      = row + 1 
+    !col      = col + 1
   END DO
 !!    this%R%vec(1:positionCol-1) = this%M(aF)%mat(positionRow,1:positionCol-1)
 !!    this%R%vec(positionCol:new_tail) = this%M(aF)%mat(positionRow,positionCol+1:tail)
@@ -1135,21 +1135,21 @@ SUBROUTINE BathOperator_setMRemove(this,particle)
 !CALL Vector_print(this%Q)
 !CALL ListCdagC_print(this%ListCdagC)
 
-  col      = 1
+  !col      = 1
   DO col_move = 1, new_tail 
-    IF ( col_move .EQ. positionCol ) col = col + 1
-    !col = col_move + (1+SIGN(1,col_move-positionCol))/2
-    row      = 1
+    !IF ( col_move .EQ. positionCol ) col = col + 1
+    col = col_move + (1+SIGN(1,col_move-positionCol))/2
+    !row      = 1
     invStilde2 = invStilde * this%R%vec(col_move)
     DO row_move = 1, new_tail
-      IF ( row_move .EQ. positionRow ) row = row + 1
-      !row = row_move + (1+SIGN(1,row_move-positionRow))/2
+      !IF ( row_move .EQ. positionRow ) row = row + 1
+      row = row_move + (1+SIGN(1,row_move-positionRow))/2
       this%M(aF)%mat(row_move,col_move) = this%M(aF)%mat(row,col) &
                                       - this%Q%vec(row_move)*invStilde2
       this%M(aF)%mat_tau(row_move,col_move) = this%M(aF)%mat_tau(row,col)
-      row      = row      + 1
+      !row      = row      + 1
     END DO
-    col      = col      + 1 
+    !col      = col      + 1 
   END DO
   CALL MatrixHyb_setSize(this%M(aF),new_tail)
 
@@ -1208,7 +1208,7 @@ END SUBROUTINE BathOperator_setMRemove
 !!  Recompute 2 M this swaping the segments
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1264,7 +1264,7 @@ END SUBROUTINE BathOperator_swap
 !!  Copy input hybridization functions from a file
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1323,7 +1323,7 @@ END SUBROUTINE BathOperator_initF
 !!  Copy F from input array
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1386,7 +1386,7 @@ END SUBROUTINE BathOperator_setF
 !!  print F function
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1456,7 +1456,7 @@ END SUBROUTINE BathOperator_printF
 !!  print M =F^{-1} this
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1511,7 +1511,7 @@ END SUBROUTINE BathOperator_printM
 !!  Deallocate and reset every thing
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1581,7 +1581,7 @@ END SUBROUTINE BathOperator_destroy
 !!  Just store if we perfom check for updates of M
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1631,7 +1631,7 @@ END SUBROUTINE BathOperator_doCheck
 !!  with the already computed M this
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
@@ -1755,7 +1755,7 @@ END SUBROUTINE BathOperator_checkM
 !!  compute a percentage error / checkM
 !!
 !! COPYRIGHT
-!!  Copyright (C) 2013-2016 ABINIT group (J. Bieder)
+!!  Copyright (C) 2013-2017 ABINIT group (J. Bieder)
 !!  This file is distributed under the terms of the
 !!  GNU General Public License, see ~abinit/COPYING
 !!  or http://www.gnu.org/copyleft/gpl.txt .
